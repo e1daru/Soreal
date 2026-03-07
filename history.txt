@@ -1,0 +1,9 @@
+#V2
+USE NS langchain DB demo;
+DEFINE INDEX test_idx_hnsw ON TABLE test FIELDS embedding HNSW DIMENSION 384 DIST COSINE;
+USE NS langchain DB demo;
+DEFINE INDEX test_idx_hnsw2 ON TABLE test FIELDS embedding HNSW DIMENSION 384 DIST COSINE CONCURRENTLY;
+USE NS langchain DB demo;
+SELECT id, text, metadata, vector, similarity FROM (SELECT id, text, metadata, vector, (1 - vector::distance::knn()) as similarity FROM type::table("documents") WHERE vector <|1|> [0.1,0.2,0.3] AND source = "https://surrealdb.com") WHERE similarity >= 0 ORDER BY similarity DESC;
+USE NS langchain DB demo;
+SELECT id, text, metadata FROM documents WHERE vector <|1|> [0.1,0.2,0.3];
