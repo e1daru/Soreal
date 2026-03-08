@@ -1,0 +1,23 @@
+# Soreal — Legal Document Analysis Web App
+# Install with: pip install -r requirements.txt
+# Or with uv:   uv pip install -r requirements.txt
+
+flask>=3.0,<4
+python-dotenv>=1.0
+
+# LangChain ecosystem
+langchain-core>=0.3
+langchain-community>=0.3
+langchain-ollama>=0.2
+langchain-huggingface>=0.1
+langchain-text-splitters>=0.3
+langgraph>=0.2
+
+# SurrealDB driver
+surrealdb>=1.0
+
+# Embeddings
+sentence-transformers>=3.0
+
+# Numerics (for groundedness scoring)
+numpy>=1.26
