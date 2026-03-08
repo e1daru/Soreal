@@ -2,3 +2,30 @@
 .env.*
 !.env.example
 .ipynb_checkpoints/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Flask uploads / temp
+uploads/
+tmp/
+
+# Sentence-transformers model cache (large, re-downloadable)
+sentence_transformers_cache/
+
+# OS
+.DS_Store
+Thumbs.db
