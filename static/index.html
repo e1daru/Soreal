@@ -1,0 +1,972 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Soreal — Legal Document Intelligence</title>
+    <style>
+      :root {
+        --bg: #0a0a0f;
+        --surface: #12121a;
+        --surface2: #1a1a26;
+        --border: #2a2a3a;
+        --accent: #6366f1;
+        --accent-glow: rgba(99, 102, 241, 0.25);
+        --green: #22c55e;
+        --yellow: #eab308;
+        --red: #ef4444;
+        --text: #e2e8f0;
+        --muted: #94a3b8;
+        --mono: "SF Mono", "Fira Code", "Consolas", monospace;
+      }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        min-height: 100vh;
+      }
+
+      /* ── Header ── */
+      header {
+        background: var(--surface);
+        border-bottom: 1px solid var(--border);
+        padding: 16px 24px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .logo {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .logo-icon {
+        width: 32px;
+        height: 32px;
+        background: var(--accent);
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 800;
+        font-size: 16px;
+        color: white;
+      }
+      .logo h1 {
+        font-size: 20px;
+        font-weight: 700;
+        letter-spacing: -0.5px;
+      }
+      .logo span {
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 400;
+      }
+      .header-actions {
+        display: flex;
+        gap: 8px;
+      }
+
+      /* ── Buttons ── */
+      .btn {
+        padding: 8px 16px;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: var(--surface2);
+        color: var(--text);
+        font-size: 13px;
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+      .btn:hover {
+        border-color: var(--accent);
+        background: rgba(99, 102, 241, 0.1);
+      }
+      .btn-primary {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: white;
+        font-weight: 600;
+      }
+      .btn-primary:hover {
+        opacity: 0.9;
+        box-shadow: 0 0 20px var(--accent-glow);
+      }
+      .btn-primary:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .btn-danger {
+        border-color: var(--red);
+        color: var(--red);
+      }
+      .btn-danger:hover {
+        background: rgba(239, 68, 68, 0.1);
+      }
+
+      /* ── Layout ── */
+      .container {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 24px;
+      }
+
+      /* ── Tabs ── */
+      .tabs {
+        display: flex;
+        gap: 4px;
+        background: var(--surface);
+        padding: 4px;
+        border-radius: 10px;
+        margin-bottom: 24px;
+        border: 1px solid var(--border);
+      }
+      .tab {
+        flex: 1;
+        padding: 10px;
+        text-align: center;
+        border-radius: 8px;
+        cursor: pointer;
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--muted);
+        transition: all 0.2s;
+        border: none;
+        background: transparent;
+      }
+      .tab:hover {
+        color: var(--text);
+      }
+      .tab.active {
+        background: var(--accent);
+        color: white;
+        box-shadow: 0 2px 8px var(--accent-glow);
+      }
+
+      /* ── Panel ── */
+      .panel {
+        display: none;
+      }
+      .panel.active {
+        display: block;
+      }
+
+      /* ── Ingest panel ── */
+      .doc-input {
+        width: 100%;
+        min-height: 280px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 16px;
+        color: var(--text);
+        font-family: var(--mono);
+        font-size: 13px;
+        line-height: 1.6;
+        resize: vertical;
+      }
+      .doc-input:focus {
+        outline: none;
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px var(--accent-glow);
+      }
+      .doc-input::placeholder {
+        color: #4a4a5a;
+      }
+      .input-footer {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: 12px;
+      }
+      .char-count {
+        font-size: 12px;
+        color: var(--muted);
+        font-family: var(--mono);
+      }
+
+      /* ── Progress ── */
+      .progress-area {
+        display: none;
+        margin-top: 20px;
+      }
+      .progress-area.visible {
+        display: block;
+      }
+      .progress-card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 20px;
+      }
+      .progress-title {
+        font-size: 14px;
+        font-weight: 600;
+        margin-bottom: 12px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .spinner {
+        width: 16px;
+        height: 16px;
+        border: 2px solid var(--border);
+        border-top-color: var(--accent);
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      .progress-steps {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .step {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 13px;
+        color: var(--muted);
+        padding: 8px 12px;
+        background: var(--surface2);
+        border-radius: 8px;
+      }
+      .step.done {
+        color: var(--green);
+      }
+      .step-icon {
+        width: 18px;
+        text-align: center;
+      }
+
+      /* ── Stats cards ── */
+      .stats-row {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 12px;
+        margin-top: 16px;
+      }
+      .stat-card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 16px;
+        text-align: center;
+      }
+      .stat-value {
+        font-size: 28px;
+        font-weight: 800;
+        color: var(--accent);
+        font-family: var(--mono);
+      }
+      .stat-label {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: var(--muted);
+        margin-top: 4px;
+      }
+
+      /* ── Q&A panel ── */
+      .chat-messages {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        margin-bottom: 16px;
+        max-height: 60vh;
+        overflow-y: auto;
+        padding-right: 8px;
+      }
+      .chat-messages::-webkit-scrollbar {
+        width: 6px;
+      }
+      .chat-messages::-webkit-scrollbar-thumb {
+        background: var(--border);
+        border-radius: 3px;
+      }
+
+      .msg {
+        max-width: 85%;
+        padding: 14px 18px;
+        border-radius: 12px;
+        font-size: 14px;
+        line-height: 1.6;
+      }
+      .msg-user {
+        align-self: flex-end;
+        background: var(--accent);
+        color: white;
+        border-bottom-right-radius: 4px;
+      }
+      .msg-ai {
+        align-self: flex-start;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-bottom-left-radius: 4px;
+      }
+
+      /* ── Confidence bar ── */
+      .confidence-section {
+        margin-top: 12px;
+        padding-top: 12px;
+        border-top: 1px solid var(--border);
+      }
+      .confidence-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 6px;
+      }
+      .confidence-label {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: var(--muted);
+      }
+      .confidence-value {
+        font-size: 13px;
+        font-weight: 700;
+        font-family: var(--mono);
+      }
+      .confidence-bar {
+        height: 6px;
+        background: var(--surface2);
+        border-radius: 3px;
+        overflow: hidden;
+      }
+      .confidence-fill {
+        height: 100%;
+        border-radius: 3px;
+        transition: width 0.5s ease;
+      }
+
+      /* ── Sources ── */
+      .sources {
+        margin-top: 10px;
+      }
+      .sources-toggle {
+        font-size: 12px;
+        color: var(--accent);
+        cursor: pointer;
+        background: none;
+        border: none;
+        font-family: inherit;
+        padding: 0;
+      }
+      .sources-toggle:hover {
+        text-decoration: underline;
+      }
+      .sources-list {
+        display: none;
+        margin-top: 8px;
+        font-size: 12px;
+        color: var(--muted);
+        font-family: var(--mono);
+        max-height: 200px;
+        overflow-y: auto;
+      }
+      .sources-list.open {
+        display: block;
+      }
+      .source-item {
+        padding: 6px 8px;
+        background: var(--bg);
+        border-radius: 6px;
+        margin-bottom: 4px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .source-score {
+        font-size: 11px;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-weight: 600;
+      }
+
+      /* ── Tool steps (debug) ── */
+      .tool-steps {
+        margin-top: 8px;
+      }
+      .tool-step {
+        font-size: 11px;
+        color: var(--muted);
+        font-family: var(--mono);
+        padding: 2px 0;
+      }
+      .tool-step::before {
+        content: ">";
+        color: var(--accent);
+        margin-right: 6px;
+      }
+
+      /* ── Chat input ── */
+      .chat-input-area {
+        display: flex;
+        gap: 8px;
+      }
+      .chat-input {
+        flex: 1;
+        padding: 12px 16px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        color: var(--text);
+        font-size: 14px;
+      }
+      .chat-input:focus {
+        outline: none;
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px var(--accent-glow);
+      }
+      .chat-input::placeholder {
+        color: #4a4a5a;
+      }
+
+      /* ── Empty state ── */
+      .empty-state {
+        text-align: center;
+        padding: 60px 20px;
+        color: var(--muted);
+      }
+      .empty-state .icon {
+        font-size: 48px;
+        margin-bottom: 16px;
+      }
+      .empty-state h3 {
+        font-size: 18px;
+        color: var(--text);
+        margin-bottom: 8px;
+      }
+      .empty-state p {
+        font-size: 14px;
+        max-width: 400px;
+        margin: 0 auto;
+        line-height: 1.6;
+      }
+
+      /* ── Graph panel ── */
+      .graph-table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      .graph-table th,
+      .graph-table td {
+        padding: 10px 14px;
+        text-align: left;
+        border-bottom: 1px solid var(--border);
+        font-size: 13px;
+      }
+      .graph-table th {
+        color: var(--muted);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        background: var(--surface);
+      }
+      .graph-table td {
+        font-family: var(--mono);
+      }
+      .count-badge {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 6px;
+        font-size: 12px;
+        font-weight: 600;
+        background: rgba(99, 102, 241, 0.15);
+        color: var(--accent);
+      }
+
+      /* ── Notification ── */
+      .toast {
+        position: fixed;
+        bottom: 24px;
+        right: 24px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 12px 20px;
+        font-size: 13px;
+        z-index: 1000;
+        opacity: 0;
+        transform: translateY(10px);
+        transition: all 0.3s;
+        pointer-events: none;
+      }
+      .toast.show {
+        opacity: 1;
+        transform: translateY(0);
+        pointer-events: auto;
+      }
+
+      /* ── Responsive ── */
+      @media (max-width: 640px) {
+        .stats-row {
+          grid-template-columns: 1fr;
+        }
+        .msg {
+          max-width: 95%;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="logo">
+        <div class="logo-icon">S</div>
+        <div>
+          <h1>Soreal</h1>
+          <span>Legal Document Intelligence &bull; Knowledge Graph RAG</span>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button class="btn btn-danger" onclick="resetDB()">Reset DB</button>
+      </div>
+    </header>
+
+    <div class="container">
+      <!-- Tabs -->
+      <div class="tabs">
+        <button class="tab active" onclick="switchTab('ingest')">
+          1. Analyze Document
+        </button>
+        <button class="tab" onclick="switchTab('qa')">2. Ask Questions</button>
+        <button class="tab" onclick="switchTab('graph')">
+          3. Knowledge Graph
+        </button>
+      </div>
+
+      <!-- INGEST PANEL -->
+      <div id="panel-ingest" class="panel active">
+        <textarea
+          id="doc-input"
+          class="doc-input"
+          placeholder="Paste your legal document text here...&#10;&#10;Example: service agreements, contracts, NDAs, terms of service..."
+          oninput="updateCharCount()"
+        ></textarea>
+        <div class="input-footer">
+          <span class="char-count" id="char-count">0 characters</span>
+          <button
+            class="btn btn-primary"
+            id="analyze-btn"
+            onclick="analyzeDocument()"
+          >
+            Analyze Document
+          </button>
+        </div>
+
+        <div class="progress-area" id="progress-area">
+          <div class="progress-card">
+            <div class="progress-title">
+              <div class="spinner" id="progress-spinner"></div>
+              <span id="progress-title-text">Processing...</span>
+            </div>
+            <div class="progress-steps" id="progress-steps"></div>
+          </div>
+        </div>
+
+        <div id="stats-area" style="display: none">
+          <div class="stats-row">
+            <div class="stat-card">
+              <div class="stat-value" id="stat-chunks">0</div>
+              <div class="stat-label">Chunks</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value" id="stat-entities">0</div>
+              <div class="stat-label">Entities</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value" id="stat-triplets">0</div>
+              <div class="stat-label">Triplets</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Q&A PANEL -->
+      <div id="panel-qa" class="panel">
+        <div id="qa-empty" class="empty-state">
+          <div class="icon">&#128269;</div>
+          <h3>Ask questions about your document</h3>
+          <p>
+            After analyzing a document, ask questions here. Answers include
+            source references and confidence scoring.
+          </p>
+        </div>
+        <div class="chat-messages" id="chat-messages"></div>
+        <div class="chat-input-area">
+          <input
+            type="text"
+            id="chat-input"
+            class="chat-input"
+            placeholder="Ask a question about the document..."
+            onkeydown="if (event.key === 'Enter') askQuestion();"
+          />
+          <button class="btn btn-primary" id="ask-btn" onclick="askQuestion()">
+            Ask
+          </button>
+        </div>
+      </div>
+
+      <!-- GRAPH PANEL -->
+      <div id="panel-graph" class="panel">
+        <div id="graph-empty" class="empty-state">
+          <div class="icon">&#128200;</div>
+          <h3>Knowledge Graph Explorer</h3>
+          <p>
+            Analyze a document first to populate the knowledge graph. Then view
+            entity and relationship counts here.
+          </p>
+        </div>
+        <div id="graph-content" style="display: none">
+          <div
+            style="
+              display: flex;
+              justify-content: flex-end;
+              margin-bottom: 12px;
+            "
+          >
+            <button class="btn" onclick="loadGraphStatus()">Refresh</button>
+          </div>
+          <div
+            style="
+              background: var(--surface);
+              border: 1px solid var(--border);
+              border-radius: 10px;
+              overflow: hidden;
+            "
+          >
+            <table class="graph-table">
+              <thead>
+                <tr>
+                  <th>Table</th>
+                  <th>Records</th>
+                </tr>
+              </thead>
+              <tbody id="graph-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+      // ── State ──
+      let isAnalyzed = false;
+
+      // ── Tab switching ──
+      function switchTab(name) {
+        document.querySelectorAll(".tab").forEach((t, i) => {
+          t.classList.toggle(
+            "active",
+            t.textContent.includes(
+              name === "ingest"
+                ? "Analyze"
+                : name === "qa"
+                  ? "Ask"
+                  : "Knowledge",
+            ),
+          );
+        });
+        document
+          .querySelectorAll(".panel")
+          .forEach((p) => p.classList.remove("active"));
+        document.getElementById("panel-" + name).classList.add("active");
+        if (name === "graph" && isAnalyzed) loadGraphStatus();
+      }
+
+      // ── Character count ──
+      function updateCharCount() {
+        const len = document.getElementById("doc-input").value.length;
+        document.getElementById("char-count").textContent =
+          len.toLocaleString() + " characters";
+      }
+
+      // ── Toast ──
+      function showToast(msg) {
+        const t = document.getElementById("toast");
+        t.textContent = msg;
+        t.classList.add("show");
+        setTimeout(() => t.classList.remove("show"), 3000);
+      }
+
+      // ── Analyze Document (SSE) ──
+      async function analyzeDocument() {
+        const text = document.getElementById("doc-input").value.trim();
+        if (!text) {
+          showToast("Please paste a document first.");
+          return;
+        }
+
+        const btn = document.getElementById("analyze-btn");
+        btn.disabled = true;
+        btn.textContent = "Analyzing...";
+
+        const area = document.getElementById("progress-area");
+        const steps = document.getElementById("progress-steps");
+        area.classList.add("visible");
+        steps.innerHTML = "";
+
+        document.getElementById("stats-area").style.display = "none";
+
+        try {
+          const response = await fetch("/api/analyze", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text }),
+          });
+
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = "";
+          let chunkCount = 0;
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+
+            const lines = buffer.split("\n");
+            buffer = lines.pop();
+
+            for (const line of lines) {
+              if (!line.startsWith("data: ")) continue;
+              const data = line.slice(6).trim();
+              if (data === "[DONE]") continue;
+
+              try {
+                const event = JSON.parse(data);
+                if (event.type === "status" || event.type === "progress") {
+                  // Extract chunk count from message
+                  const chunkMatch = event.message.match(/(\d+)\s*chunks/i);
+                  if (chunkMatch) chunkCount = parseInt(chunkMatch[1]);
+
+                  const step = document.createElement("div");
+                  step.className = "step done";
+                  step.innerHTML =
+                    '<span class="step-icon">&#10003;</span>' +
+                    escapeHtml(event.message);
+                  steps.appendChild(step);
+                  steps.scrollTop = steps.scrollHeight;
+                }
+                if (event.type === "complete") {
+                  isAnalyzed = true;
+                  document.getElementById("progress-spinner").style.display =
+                    "none";
+                  document.getElementById("progress-title-text").textContent =
+                    "Analysis complete!";
+
+                  document.getElementById("stats-area").style.display = "block";
+                  document.getElementById("stat-chunks").textContent =
+                    chunkCount || "?";
+                  document.getElementById("stat-entities").textContent =
+                    event.entities || 0;
+                  document.getElementById("stat-triplets").textContent =
+                    event.triplets || 0;
+                }
+              } catch (e) {
+                /* skip parse errors */
+              }
+            }
+          }
+        } catch (err) {
+          showToast("Error: " + err.message);
+        }
+
+        btn.disabled = false;
+        btn.textContent = "Analyze Document";
+      }
+
+      // ── Ask Question ──
+      async function askQuestion() {
+        const input = document.getElementById("chat-input");
+        const question = input.value.trim();
+        if (!question) return;
+
+        input.value = "";
+        const messages = document.getElementById("chat-messages");
+        const empty = document.getElementById("qa-empty");
+        empty.style.display = "none";
+
+        // User message
+        const userMsg = document.createElement("div");
+        userMsg.className = "msg msg-user";
+        userMsg.textContent = question;
+        messages.appendChild(userMsg);
+
+        // Loading
+        const loading = document.createElement("div");
+        loading.className = "msg msg-ai";
+        loading.innerHTML =
+          '<div style="display:flex;align-items:center;gap:8px"><div class="spinner"></div> Searching knowledge graph...</div>';
+        messages.appendChild(loading);
+        messages.scrollTop = messages.scrollHeight;
+
+        const btn = document.getElementById("ask-btn");
+        btn.disabled = true;
+
+        try {
+          const resp = await fetch("/api/ask", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ question }),
+          });
+          const data = await resp.json();
+          loading.remove();
+
+          const aiMsg = document.createElement("div");
+          aiMsg.className = "msg msg-ai";
+
+          let html =
+            "<div>" +
+            escapeHtml(data.answer || "No answer generated.") +
+            "</div>";
+
+          // Groundedness / confidence
+          const g = data.groundedness || {};
+          const score = g.groundedness_score || 0;
+          const pct = Math.round(score * 100);
+          const color =
+            score >= 0.7
+              ? "var(--green)"
+              : score >= 0.4
+                ? "var(--yellow)"
+                : "var(--red)";
+          const verdict =
+            score >= 0.7
+              ? "Well-grounded"
+              : score >= 0.4
+                ? "Partially grounded"
+                : "Weakly grounded";
+
+          html += `
+        <div class="confidence-section">
+          <div class="confidence-header">
+            <span class="confidence-label">Confidence (groundedness)</span>
+            <span class="confidence-value" style="color:${color}">${pct}% &mdash; ${verdict}</span>
+          </div>
+          <div class="confidence-bar">
+            <div class="confidence-fill" style="width:${pct}%;background:${color}"></div>
+          </div>
+          <div style="display:flex;gap:16px;margin-top:6px;font-size:11px;color:var(--muted);font-family:var(--mono)">
+            <span>Token coverage: ${Math.round((g.token_coverage || 0) * 100)}%</span>
+            <span>Semantic sim: ${Math.round((g.avg_semantic_similarity || 0) * 100)}%</span>
+            <span>Facts used: ${(g.matched_facts || []).length}/${g.total_graph_facts || 0}</span>
+          </div>
+        </div>`;
+
+          // Sources
+          const sources = data.sources || [];
+          if (sources.length > 0) {
+            const srcId = "src-" + Date.now();
+            html += `
+          <div class="sources">
+            <button class="sources-toggle" onclick="document.getElementById('${srcId}').classList.toggle('open')">
+              &#128279; ${sources.length} source${sources.length > 1 ? "s" : ""} referenced
+            </button>
+            <div class="sources-list" id="${srcId}">
+              ${sources
+                .map((s) => {
+                  const label = s.entity || s.chunk_id || s.id || "Unknown";
+                  const sc = Math.round((s.score || 0) * 100);
+                  const scColor =
+                    sc >= 70
+                      ? "var(--green)"
+                      : sc >= 40
+                        ? "var(--yellow)"
+                        : "var(--red)";
+                  return `<div class="source-item">
+                  <span>${escapeHtml(String(label))}</span>
+                  <span class="source-score" style="background:${scColor}20;color:${scColor}">${sc}%</span>
+                </div>`;
+                })
+                .join("")}
+            </div>
+          </div>`;
+          }
+
+          // Tool steps
+          const tools = data.tool_steps || [];
+          if (tools.length > 0) {
+            html += `<div class="tool-steps">
+          ${tools.map((t) => `<div class="tool-step">${escapeHtml(t.tool)}(${escapeHtml(JSON.stringify(t.args || {}).substring(0, 80))})</div>`).join("")}
+        </div>`;
+          }
+
+          aiMsg.innerHTML = html;
+          messages.appendChild(aiMsg);
+          messages.scrollTop = messages.scrollHeight;
+        } catch (err) {
+          loading.remove();
+          showToast("Error: " + err.message);
+        }
+        btn.disabled = false;
+      }
+
+      // ── Graph Status ──
+      async function loadGraphStatus() {
+        try {
+          const resp = await fetch("/api/status");
+          const data = await resp.json();
+          document.getElementById("graph-empty").style.display = "none";
+          document.getElementById("graph-content").style.display = "block";
+
+          const tbody = document.getElementById("graph-tbody");
+          tbody.innerHTML = "";
+          const sorted = Object.entries(data).sort((a, b) => b[1] - a[1]);
+          for (const [table, count] of sorted) {
+            if (count === 0 && sorted.filter(([, c]) => c > 0).length > 10)
+              continue;
+            const tr = document.createElement("tr");
+            tr.innerHTML = `<td>${escapeHtml(table)}</td><td><span class="count-badge">${count}</span></td>`;
+            tbody.appendChild(tr);
+          }
+        } catch (err) {
+          showToast("Failed to load graph status.");
+        }
+      }
+
+      // ── Reset DB ──
+      async function resetDB() {
+        if (!confirm("Clear all data from the knowledge graph?")) return;
+        try {
+          await fetch("/api/reset", { method: "POST" });
+          isAnalyzed = false;
+          document.getElementById("progress-area").classList.remove("visible");
+          document.getElementById("stats-area").style.display = "none";
+          document.getElementById("chat-messages").innerHTML = "";
+          document.getElementById("qa-empty").style.display = "block";
+          document.getElementById("graph-content").style.display = "none";
+          document.getElementById("graph-empty").style.display = "block";
+          showToast("Database cleared.");
+        } catch (err) {
+          showToast("Failed to reset: " + err.message);
+        }
+      }
+
+      // ── Utils ──
+      function escapeHtml(text) {
+        const map = {
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          '"': "&quot;",
+          "'": "&#039;",
+        };
+        return text.replace(/[&<>"']/g, (c) => map[c]);
+      }
+    </script>
+  </body>
+</html>
