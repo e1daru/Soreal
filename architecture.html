@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Soreal — System Workflow</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0d1117; color: #c9d1d9;
+    font-family: 'Inter', system-ui, sans-serif;
+    min-height: 100vh; display: flex; flex-direction: column; align-items: center;
+    padding: 30px 20px 60px;
+  }
+  h1 { color: #58a6ff; font-size: 1.6rem; margin-bottom: 4px; }
+  .subtitle { color: #8b949e; font-size: .85rem; margin-bottom: 36px; }
+
+  /* ── flow container ── */
+  .flow { display: flex; flex-direction: column; align-items: center; gap: 0; width: 100%; max-width: 720px; }
+
+  /* ── node styles ── */
+  .node {
+    position: relative;
+    width: 100%; max-width: 420px;
+    padding: 16px 22px;
+    border-radius: 12px;
+    background: #161b22;
+    border: 1.5px solid #30363d;
+    text-align: center;
+    transition: border-color .2s, box-shadow .2s;
+  }
+  .node:hover { box-shadow: 0 0 20px rgba(88,166,255,.15); }
+  .node .icon { font-size: 1.3rem; margin-bottom: 4px; }
+  .node .name { font-weight: 600; font-size: .95rem; margin-bottom: 3px; }
+  .node .desc { color: #8b949e; font-size: .75rem; line-height: 1.45; }
+  .node .tech { display: inline-block; margin-top: 6px; padding: 2px 8px; border-radius: 4px;
+    font-size: .65rem; font-weight: 500; background: #21262d; color: #8b949e; }
+
+  /* color accents */
+  .node.blue   { border-color: #58a6ff; }  .node.blue .name   { color: #58a6ff; }
+  .node.orange { border-color: #f0883e; }  .node.orange .name { color: #f0883e; }
+  .node.purple { border-color: #a371f7; }  .node.purple .name { color: #a371f7; }
+  .node.green  { border-color: #3fb950; }  .node.green .name  { color: #3fb950; }
+  .node.pink   { border-color: #f778ba; }  .node.pink .name   { color: #f778ba; }
+  .node.cyan   { border-color: #79c0ff; }  .node.cyan .name   { color: #79c0ff; }
+
+  /* ── arrow between nodes ── */
+  .arrow {
+    display: flex; flex-direction: column; align-items: center;
+    padding: 6px 0;
+    color: #484f58; font-size: .7rem;
+  }
+  .arrow svg { width: 20px; height: 28px; }
+  .arrow .label { margin-top: -2px; color: #6e7681; font-size: .68rem; }
+
+  /* ── branch (two paths) ── */
+  .branch {
+    display: flex; width: 100%; max-width: 620px; gap: 24px;
+    justify-content: center; align-items: flex-start;
+  }
+  .branch-col { display: flex; flex-direction: column; align-items: center; gap: 0; flex: 1; }
+  .branch-label {
+    font-size: .7rem; font-weight: 600; color: #8b949e;
+    padding: 4px 12px; border-radius: 20px; background: #21262d;
+    margin-bottom: 8px;
+  }
+
+  /* ── diamond (decision) ── */
+  .diamond-wrap { display: flex; flex-direction: column; align-items: center; }
+  .diamond {
+    width: 160px; height: 80px; position: relative;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .diamond svg { position: absolute; inset: 0; }
+  .diamond .name { position: relative; z-index: 1; font-weight: 600; font-size: .85rem; color: #f0883e; }
+
+  /* ── loop indicator ── */
+  .loop-badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: .65rem; color: #f0883e; background: #f0883e18;
+    padding: 3px 10px; border-radius: 20px; margin-top: 4px;
+  }
+</style>
+</head>
+<body>
+
+<h1>Soreal — System Workflow</h1>
+<p class="subtitle">Knowledge-Graph RAG Pipeline for Legal Document Analysis</p>
+
+<div class="flow">
+
+  <!-- 1. User -->
+  <div class="node blue">
+    <div class="icon">👤</div>
+    <div class="name">User</div>
+    <div class="desc">Uploads a legal document or asks a question via the web interface</div>
+    <span class="tech">Browser SPA</span>
+  </div>
+
+  <div class="arrow"><svg viewBox="0 0 20 28"><path d="M10 0 V22 M4 17 L10 24 L16 17" stroke="#484f58" fill="none" stroke-width="2"/></svg></div>
+
+  <!-- 2. Web Server -->
+  <div class="node blue">
+    <div class="icon">🌐</div>
+    <div class="name">FastAPI Server</div>
+    <div class="desc">Receives requests, streams progress via SSE, returns JSON answers</div>
+    <span class="tech">Uvicorn · Port 8001</span>
+  </div>
+
+  <div class="arrow"><svg viewBox="0 0 20 28"><path d="M10 0 V22 M4 17 L10 24 L16 17" stroke="#484f58" fill="none" stroke-width="2"/></svg></div>
+
+  <!-- 3. Router -->
+  <div class="diamond-wrap">
+    <div class="diamond">
+      <svg viewBox="0 0 160 80"><polygon points="80,2 158,40 80,78 2,40" fill="#161b22" stroke="#f0883e" stroke-width="1.5"/></svg>
+      <div class="name">Router</div>
+    </div>
+    <div class="desc" style="color:#6e7681;font-size:.7rem;margin-top:4px;">LangGraph Entry Node</div>
+  </div>
+
+  <div class="arrow" style="height:16px;"></div>
+
+  <!-- 4. Branch: Analyze vs. Ask -->
+  <div class="branch">
+
+    <!-- LEFT: Analyze Pipeline -->
+    <div class="branch-col">
+      <div class="branch-label">📄 Analyze Document</div>
+
+      <div class="node green" style="max-width:280px;">
+        <div class="name">1. Chunk & Embed</div>
+        <div class="desc">Split document into overlapping chunks, embed with HuggingFace</div>
+        <span class="tech">bge-small-en-v1.5 · 384d</span>
+      </div>
+      <div class="arrow"><svg viewBox="0 0 20 28"><path d="M10 0 V22 M4 17 L10 24 L16 17" stroke="#484f58" fill="none" stroke-width="2"/></svg></div>
+
+      <div class="node purple" style="max-width:280px;">
+        <div class="name">2. Extract Entities</div>
+        <div class="desc">Legal NER via LLM — finds parties, clauses, obligations, dates, fees…</div>
+        <span class="tech">Ollama · llama3.1:8b</span>
+      </div>
+      <div class="arrow"><svg viewBox="0 0 20 28"><path d="M10 0 V22 M4 17 L10 24 L16 17" stroke="#484f58" fill="none" stroke-width="2"/></svg></div>
+
+      <div class="node purple" style="max-width:280px;">
+        <div class="name">3. Form Triplets</div>
+        <div class="desc">Extract (subject → predicate → object) relations from 30 legal predicates</div>
+        <span class="tech">Ollama · llama3.1:8b</span>
+      </div>
+      <div class="arrow"><svg viewBox="0 0 20 28"><path d="M10 0 V22 M4 17 L10 24 L16 17" stroke="#484f58" fill="none" stroke-width="2"/></svg></div>
+
+      <div class="node green" style="max-width:280px;">
+        <div class="name">4. Build Knowledge Graph</div>
+        <div class="desc">Create entity nodes + relation edges in SurrealDB with vector indexes</div>
+        <span class="tech">SurrealDB · 18 node · 30 edge tables</span>
+      </div>
+    </div>
+
+    <!-- RIGHT: Ask Question -->
+    <div class="branch-col">
+      <div class="branch-label">❓ Ask Question</div>
+
+      <div class="node purple" style="max-width:280px;">
+        <div class="name">1. Understand Query</div>
+        <div class="desc">LLM decides which tools to call — vector search, graph summary, or mutation</div>
+        <span class="tech">Ollama · tool-calling</span>
+      </div>
+      <div class="arrow"><svg viewBox="0 0 20 28"><path d="M10 0 V22 M4 17 L10 24 L16 17" stroke="#484f58" fill="none" stroke-width="2"/></svg></div>
+
+      <div class="node green" style="max-width:280px;">
+        <div class="name">2. Search Knowledge Graph</div>
+        <div class="desc">Vector similarity search across 11 tables + graph traversal for related edges</div>
+        <span class="tech">HNSW · cosine · top-K</span>
+      </div>
+      <div class="arrow"><svg viewBox="0 0 20 28"><path d="M10 0 V22 M4 17 L10 24 L16 17" stroke="#484f58" fill="none" stroke-width="2"/></svg></div>
+
+      <div class="node purple" style="max-width:280px;">
+        <div class="name">3. Generate Answer</div>
+        <div class="desc">LLM synthesizes answer from retrieved graph facts, citing source chunks</div>
+        <span class="tech">Ollama · llama3.1:8b</span>
+        <div class="loop-badge">🔄 loops until answer is complete</div>
+      </div>
+      <div class="arrow"><svg viewBox="0 0 20 28"><path d="M10 0 V22 M4 17 L10 24 L16 17" stroke="#484f58" fill="none" stroke-width="2"/></svg></div>
+
+      <div class="node cyan" style="max-width:280px;">
+        <div class="name">4. Score Groundedness</div>
+        <div class="desc">Token overlap + semantic similarity between answer and graph facts</div>
+        <span class="tech">0.6 × coverage + 0.4 × cosine sim</span>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="arrow"><svg viewBox="0 0 20 28"><path d="M10 0 V22 M4 17 L10 24 L16 17" stroke="#484f58" fill="none" stroke-width="2"/></svg></div>
+
+  <!-- 5. Response -->
+  <div class="node blue">
+    <div class="icon">✅</div>
+    <div class="name">Response to User</div>
+    <div class="desc">Analyze: entity count, triplet count, graph stats<br>Ask: answer + groundedness score + source citations</div>
+  </div>
+
+</div>
+
+</body>
+</html>

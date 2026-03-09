@@ -1,0 +1,8 @@
+{
+  "chat.tools.terminal.autoApprove": {
+    "/^docker compose up -d --build --force-recreate app && docker compose exec app printenv OLLAMA_MODEL$/": {
+      "approve": true,
+      "matchCommandLine": true
+    }
+  }
+}

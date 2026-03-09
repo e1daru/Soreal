@@ -244,6 +244,9 @@
       .step.done {
         color: var(--green);
       }
+      .step.error {
+        color: var(--red);
+      }
       .step-icon {
         width: 18px;
         text-align: center;
@@ -718,6 +721,9 @@
         const steps = document.getElementById("progress-steps");
         area.classList.add("visible");
         steps.innerHTML = "";
+        document.getElementById("progress-spinner").style.display = "block";
+        document.getElementById("progress-title-text").textContent =
+          "Processing...";
 
         document.getElementById("stats-area").style.display = "none";
 
@@ -728,10 +734,18 @@
             body: JSON.stringify({ text }),
           });
 
+          if (!response.ok) {
+            throw new Error(`Analyze request failed with ${response.status}`);
+          }
+          if (!response.body) {
+            throw new Error("Analyze stream did not return a response body.");
+          }
+
           const reader = response.body.getReader();
           const decoder = new TextDecoder();
           let buffer = "";
           let chunkCount = 0;
+          let analysisFailed = false;
 
           while (true) {
             const { done, value } = await reader.read();
@@ -776,12 +790,35 @@
                   document.getElementById("stat-triplets").textContent =
                     event.triplets || 0;
                 }
+                if (event.type === "error") {
+                  analysisFailed = true;
+                  document.getElementById("progress-spinner").style.display =
+                    "none";
+                  document.getElementById("progress-title-text").textContent =
+                    "Analysis failed";
+
+                  const step = document.createElement("div");
+                  step.className = "step error";
+                  step.innerHTML =
+                    '<span class="step-icon">&#9888;</span>' +
+                    escapeHtml(event.message);
+                  steps.appendChild(step);
+                  steps.scrollTop = steps.scrollHeight;
+                  showToast(event.message);
+                  await reader.cancel();
+                  break;
+                }
               } catch (e) {
                 /* skip parse errors */
               }
             }
+
+            if (analysisFailed) break;
           }
         } catch (err) {
+          document.getElementById("progress-spinner").style.display = "none";
+          document.getElementById("progress-title-text").textContent =
+            "Analysis failed";
           showToast("Error: " + err.message);
         }
 

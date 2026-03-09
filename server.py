@@ -55,10 +55,13 @@ async def analyze(req: AnalyzeRequest):
     """Ingest a document and stream progress via SSE."""
 
     def event_stream():
-        for event in engine.ingest_document(req.text):
-            if event["type"] == "complete":
-                _session["thread_id"] = event["thread_id"]
-            yield f"data: {json.dumps(event)}\n\n"
+        try:
+            for event in engine.ingest_document(req.text):
+                if event["type"] == "complete":
+                    _session["thread_id"] = event["thread_id"]
+                yield f"data: {json.dumps(event)}\n\n"
+        except Exception as exc:
+            yield f"data: {json.dumps({'type': 'error', 'message': str(exc)})}\n\n"
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")

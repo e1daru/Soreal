@@ -13,6 +13,8 @@ from __future__ import annotations
 import json
 import os
 import re
+import urllib.error
+import urllib.request
 import uuid
 from typing import Annotated, Generator, TypedDict
 
@@ -37,15 +39,48 @@ SURREAL_USERNAME = os.getenv("SURREAL_USERNAME", "root")
 SURREAL_PASSWORD = os.getenv("SURREAL_PASSWORD", "root")
 SURREAL_NAMESPACE = os.getenv("SURREAL_NAMESPACE", "soreal")
 SURREAL_DATABASE = os.getenv("SURREAL_DATABASE", "kg")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"
 EMBEDDING_DIM = 384
+INGEST_CHUNK_SIZE = int(os.getenv("INGEST_CHUNK_SIZE", "800"))
+INGEST_CHUNK_OVERLAP = int(os.getenv("INGEST_CHUNK_OVERLAP", "100"))
+MAX_EXTRACTED_ENTITIES = int(os.getenv("MAX_EXTRACTED_ENTITIES", "12"))
+MAX_TRIPLETS_PER_CHUNK = int(os.getenv("MAX_TRIPLETS_PER_CHUNK", "12"))
+OLLAMA_EXTRACTION_NUM_PREDICT = int(os.getenv("OLLAMA_EXTRACTION_NUM_PREDICT", "256"))
 
 # ── Connections ─────────────────────────────────────────────────────────────
-conn = Surreal(SURREAL_URL)
-conn.signin({"username": SURREAL_USERNAME, "password": SURREAL_PASSWORD})
-conn.use(SURREAL_NAMESPACE, SURREAL_DATABASE)
+import threading
+
+_conn_lock = threading.Lock()
+
+
+def _new_connection() -> Surreal:
+    """Create and authenticate a fresh SurrealDB connection."""
+    c = Surreal(SURREAL_URL)
+    c.signin({"username": SURREAL_USERNAME, "password": SURREAL_PASSWORD})
+    c.use(SURREAL_NAMESPACE, SURREAL_DATABASE)
+    return c
+
+
+conn = _new_connection()
+
+
+def _ensure_conn() -> Surreal:
+    """Return the module-level conn, reconnecting if the WebSocket is dead."""
+    global conn
+    try:
+        conn.query("RETURN true;")
+        return conn
+    except Exception:
+        with _conn_lock:
+            # Double-check after acquiring lock
+            try:
+                conn.query("RETURN true;")
+                return conn
+            except Exception:
+                conn = _new_connection()
+                return conn
 
 embeddings = HuggingFaceEmbeddings(
     model_name=EMBEDDING_MODEL,
@@ -54,7 +89,34 @@ embeddings = HuggingFaceEmbeddings(
 )
 
 llm = ChatOllama(model=OLLAMA_MODEL, base_url=OLLAMA_BASE_URL, temperature=0)
+extraction_llm = ChatOllama(
+    model=OLLAMA_MODEL,
+    base_url=OLLAMA_BASE_URL,
+    temperature=0,
+    num_predict=OLLAMA_EXTRACTION_NUM_PREDICT,
+)
 print(f"[soreal] Using Ollama model: {OLLAMA_MODEL}")
+
+
+def ensure_ollama_model_ready() -> None:
+    """Fail fast with a clear message if the configured Ollama model is missing."""
+    tags_url = f"{OLLAMA_BASE_URL.rstrip('/')}/api/tags"
+    try:
+        with urllib.request.urlopen(tags_url, timeout=5) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+        raise RuntimeError(
+            f"Unable to reach Ollama at {OLLAMA_BASE_URL}. Check that the Ollama service is running."
+        ) from exc
+
+    models = payload.get("models", []) if isinstance(payload, dict) else []
+    available_models = [model.get("name", "") for model in models if isinstance(model, dict)]
+    if OLLAMA_MODEL not in available_models:
+        available = ", ".join(sorted(filter(None, available_models))) or "none"
+        raise RuntimeError(
+            f"Ollama model '{OLLAMA_MODEL}' is not installed. Available models: {available}. "
+            f"Run 'docker compose exec ollama ollama pull {OLLAMA_MODEL}' and retry."
+        )
 
 # ── Entity & predicate catalogs ─────────────────────────────────────────────
 
@@ -272,12 +334,14 @@ SCHEMA_STATEMENTS = [
 
 
 def init_schema():
+    conn = _ensure_conn()
     for stmt in SCHEMA_STATEMENTS:
         conn.query(stmt + ";")
 
 
 def reset_database():
     """Drop all data for a fresh document analysis."""
+    conn = _ensure_conn()
     all_tables = list(set(
         VALID_PREDICATES
         + list(ENTITY_TYPE_TO_TABLE.values())
@@ -294,9 +358,10 @@ def reset_database():
 
 LEGAL_NER_PROMPT = """\
 You are a legal-document NER system.
-Given a text chunk from a contract or legal document, extract every entity.
+Given a text chunk from a contract or legal document, extract only the most salient legal entities.
 
 Allowed entity types: {entity_types}
+Maximum entities to return: {max_entities}
 
 Return **only** valid JSON – a list of objects:
 [
@@ -305,7 +370,10 @@ Return **only** valid JSON – a list of objects:
 
 For each entity:
 - `name` is a short, descriptive label.
-- `properties` may include fields like description, amount, severity, date_value, etc.
+- `properties` may include fields like amount, date_value, or description when they are explicit in the text.
+- Prefer parties, obligations, payment terms, fees, dates, rights, restrictions, conditions, and sections.
+- Skip generic legal filler and near-duplicate entities.
+- Keep the list concise and deduplicated.
 
 If a chunk has no entities, return an empty list: []
 
@@ -324,6 +392,7 @@ Entities found so far:
 {entities}
 
 Allowed predicates: {predicates}
+Maximum triplets to return: {max_triplets}
 
 Return **only** valid JSON – a list of triplet objects:
 [
@@ -335,6 +404,8 @@ Rules:
 - Only use entities from the list above as subject / object.
 - Only use predicates from the allowed list.
 - Each triplet must include the source_chunk id for traceability.
+- Only return direct, explicit, high-confidence relationships.
+- Skip weak, implied, or duplicate triplets.
 
 Text chunk (id = {chunk_id}):
 \"\"\"
@@ -379,13 +450,41 @@ def _normalize_predicate(raw: str) -> str | None:
     return None
 
 
+def _extract_query_rows(raw_result) -> list[dict]:
+    """Normalize SurrealDB query responses into a flat list of record dicts."""
+    if raw_result is None or isinstance(raw_result, str):
+        return []
+
+    if isinstance(raw_result, dict):
+        if isinstance(raw_result.get("result"), list):
+            return [r for r in raw_result["result"] if isinstance(r, dict)]
+        return [raw_result] if isinstance(raw_result.get("id"), str) else []
+
+    if not isinstance(raw_result, list):
+        return []
+
+    rows: list[dict] = []
+    for item in raw_result:
+        if isinstance(item, list):
+            rows.extend(r for r in item if isinstance(r, dict))
+            continue
+        if isinstance(item, dict):
+            result = item.get("result")
+            if isinstance(result, list):
+                rows.extend(r for r in result if isinstance(r, dict))
+                continue
+            rows.append(item)
+    return rows
+
+
 # ── Tools ───────────────────────────────────────────────────────────────────
 
 @tool
 def ingest_text(text: str, source: str = "legal_doc") -> str:
     """Split a legal document into overlapping chunks, embed and store them."""
+    conn = _ensure_conn()
     splitter = RecursiveCharacterTextSplitter(
-        chunk_size=120, chunk_overlap=60,
+        chunk_size=INGEST_CHUNK_SIZE, chunk_overlap=INGEST_CHUNK_OVERLAP,
         separators=["\n\n", "\n", ". ", " "]
     )
     chunks = splitter.split_text(text)
@@ -406,6 +505,7 @@ def ingest_text(text: str, source: str = "legal_doc") -> str:
 @tool
 def extract_legal_entities(chunks_json: str) -> str:
     """Run legal NER over every stored chunk and return merged entities JSON."""
+    conn = _ensure_conn()
     chunks_info = json.loads(chunks_json)
     all_entities = []
     seen = set()
@@ -420,9 +520,11 @@ def extract_legal_entities(chunks_json: str) -> str:
             continue
         text = rows[0][0]["content"] if isinstance(rows[0], list) else rows[0].get("content", "")
         prompt = LEGAL_NER_PROMPT.format(
-            entity_types=", ".join(VALID_ENTITY_TYPES), text=text
+            entity_types=", ".join(VALID_ENTITY_TYPES),
+            max_entities=MAX_EXTRACTED_ENTITIES,
+            text=text,
         )
-        resp = llm.invoke(prompt)
+        resp = extraction_llm.invoke(prompt)
         raw = resp.content if hasattr(resp, "content") else str(resp)
         match = re.search(r"\[.*\]", raw, re.DOTALL)
         if not match:
@@ -436,12 +538,17 @@ def extract_legal_entities(chunks_json: str) -> str:
             if key not in seen:
                 seen.add(key)
                 all_entities.append(e)
+            if len(all_entities) >= MAX_EXTRACTED_ENTITIES:
+                break
+        if len(all_entities) >= MAX_EXTRACTED_ENTITIES:
+            break
     return json.dumps(all_entities)
 
 
 @tool
 def form_legal_triplets(entities_json: str, chunks_json: str) -> str:
     """Extract relation triplets between the given entities for every chunk."""
+    conn = _ensure_conn()
     entities = json.loads(entities_json)
     chunks_info = json.loads(chunks_json)
     all_triplets = []
@@ -456,11 +563,12 @@ def form_legal_triplets(entities_json: str, chunks_json: str) -> str:
             continue
         text = rows[0][0]["content"] if isinstance(rows[0], list) else rows[0].get("content", "")
         prompt = LEGAL_TRIPLET_PROMPT.format(
-            entities=json.dumps(entities[:60]),
+            entities=json.dumps(entities[:MAX_EXTRACTED_ENTITIES]),
             predicates=", ".join(VALID_PREDICATES),
+            max_triplets=MAX_TRIPLETS_PER_CHUNK,
             chunk_id=cid, text=text,
         )
-        resp = llm.invoke(prompt)
+        resp = extraction_llm.invoke(prompt)
         raw = resp.content if hasattr(resp, "content") else str(resp)
         match = re.search(r"\[.*\]", raw, re.DOTALL)
         if not match:
@@ -474,12 +582,17 @@ def form_legal_triplets(entities_json: str, chunks_json: str) -> str:
             if norm:
                 t["predicate"] = norm
                 all_triplets.append(t)
+            if len(all_triplets) >= MAX_TRIPLETS_PER_CHUNK:
+                break
+        if len(all_triplets) >= MAX_TRIPLETS_PER_CHUNK:
+            break
     return json.dumps(all_triplets)
 
 
 @tool
 def load_entities_and_triplets(entities_json: str, triplets_json: str) -> str:
     """Upsert legal entities (with vectors) and create relation edges."""
+    conn = _ensure_conn()
     entities = json.loads(entities_json)
     triplets = json.loads(triplets_json)
 
@@ -539,6 +652,7 @@ def load_entities_and_triplets(entities_json: str, triplets_json: str) -> str:
 @tool
 def search_graph(query: str, top_k: int = 5) -> str:
     """Semantic vector search across all vectorised KG tables + graph walk."""
+    conn = _ensure_conn()
     qvec = embeddings.embed_query(query)
     results = []
     for tbl in VECTORIZED_TABLES:
@@ -548,8 +662,7 @@ def search_graph(query: str, top_k: int = 5) -> str:
             f"ORDER BY score DESC LIMIT $k;",
             {"qvec": qvec, "k": top_k}
         )
-        flat = rows[0] if rows and isinstance(rows[0], list) else rows
-        for r in (flat or []):
+        for r in _extract_query_rows(rows):
             results.append({"table": tbl, "id": str(r.get("id", "")),
                             "label": r.get("label", r.get("content", "")),
                             "score": r.get("score", 0)})
@@ -558,10 +671,10 @@ def search_graph(query: str, top_k: int = 5) -> str:
     enriched = []
     for r in top:
         rid = r["id"]
-        out_rows = conn.query(f"SELECT ->? AS rels FROM {rid};")
-        in_rows = conn.query(f"SELECT <-? AS rels FROM {rid};")
-        r["outgoing"] = out_rows[0] if out_rows else []
-        r["incoming"] = in_rows[0] if in_rows else []
+        out_rows = _extract_query_rows(conn.query(f"SELECT ->? AS rels FROM {rid};"))
+        in_rows = _extract_query_rows(conn.query(f"SELECT <-? AS rels FROM {rid};"))
+        r["outgoing"] = out_rows[0].get("rels", []) if out_rows else []
+        r["incoming"] = in_rows[0].get("rels", []) if in_rows else []
         enriched.append(r)
     return json.dumps(enriched, default=str)
 
@@ -569,6 +682,7 @@ def search_graph(query: str, top_k: int = 5) -> str:
 @tool
 def mutate_graph(surql: str) -> str:
     """Execute a SurrealQL mutation (CREATE / RELATE / UPDATE / DELETE)."""
+    conn = _ensure_conn()
     blocked = ["REMOVE", "DROP", "DEFINE", "INFO"]
     upper = surql.upper()
     for b in blocked:
@@ -581,6 +695,7 @@ def mutate_graph(surql: str) -> str:
 @tool
 def get_graph_summary() -> str:
     """Return record counts for every node and edge table in the KG."""
+    conn = _ensure_conn()
     tables = (
         [t for t in ENTITY_TYPE_TO_TABLE.values()]
         + ["chunk", "document", "paragraph"]
@@ -589,9 +704,8 @@ def get_graph_summary() -> str:
     counts = {}
     for t in set(tables):
         try:
-            r = conn.query(f"SELECT count() FROM {t} GROUP ALL;")
-            flat = r[0] if r and isinstance(r[0], list) else r
-            counts[t] = flat[0].get("count", 0) if flat else 0
+            rows = _extract_query_rows(conn.query(f"SELECT count() FROM {t} GROUP ALL;"))
+            counts[t] = rows[0].get("count", 0) if rows else 0
         except Exception:
             counts[t] = 0
     return json.dumps(counts)
@@ -825,39 +939,43 @@ graph_agent = build_graph()
 
 def ingest_document(text: str) -> Generator[dict, None, None]:
     """Run the full ingest pipeline, yielding progress events."""
-    reset_database()
-    init_schema()
     thread_id = str(uuid.uuid4())
     config = {"configurable": {"thread_id": thread_id}}
 
-    yield {"type": "status", "message": "Starting ingestion pipeline..."}
+    try:
+        ensure_ollama_model_ready()
+        reset_database()
+        init_schema()
 
-    for event in graph_agent.stream(
-        {"messages": [HumanMessage(content=f"Analyze this legal document:\n\n{text}")]},
-        config=config,
-        stream_mode="values",
-    ):
-        phase = event.get("phase", "")
-        last_msg = event["messages"][-1]
-        content = str(getattr(last_msg, "content", "")).strip()
-        if content:
-            yield {"type": "progress", "phase": phase, "message": content}
+        yield {"type": "status", "message": "Starting ingestion pipeline..."}
 
-    # Collect final stats
-    state = graph_agent.get_state(config)
-    entities_raw = state.values.get("entities_json", "[]")
-    triplets_raw = state.values.get("triplets_json", "[]")
-    entities = _safe_json_array(entities_raw)
-    triplets = _safe_json_array(triplets_raw)
+        for event in graph_agent.stream(
+            {"messages": [HumanMessage(content=f"Analyze this legal document:\n\n{text}")]},
+            config=config,
+            stream_mode="values",
+        ):
+            phase = event.get("phase", "")
+            last_msg = event["messages"][-1]
+            content = str(getattr(last_msg, "content", "")).strip()
+            if content:
+                yield {"type": "progress", "phase": phase, "message": content}
 
-    yield {
-        "type": "complete",
-        "thread_id": thread_id,
-        "entities": len(entities),
-        "triplets": len(triplets),
-        "entity_details": entities,
-        "triplet_details": triplets,
-    }
+        state = graph_agent.get_state(config)
+        entities_raw = state.values.get("entities_json", "[]")
+        triplets_raw = state.values.get("triplets_json", "[]")
+        entities = _safe_json_array(entities_raw)
+        triplets = _safe_json_array(triplets_raw)
+
+        yield {
+            "type": "complete",
+            "thread_id": thread_id,
+            "entities": len(entities),
+            "triplets": len(triplets),
+            "entity_details": entities,
+            "triplet_details": triplets,
+        }
+    except Exception as exc:
+        yield {"type": "error", "message": str(exc)}
 
 
 def ask_question(question: str, thread_id: str) -> dict:
