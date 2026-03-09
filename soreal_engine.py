@@ -43,10 +43,10 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"
 EMBEDDING_DIM = 384
-INGEST_CHUNK_SIZE = int(os.getenv("INGEST_CHUNK_SIZE", "800"))
-INGEST_CHUNK_OVERLAP = int(os.getenv("INGEST_CHUNK_OVERLAP", "100"))
-MAX_EXTRACTED_ENTITIES = int(os.getenv("MAX_EXTRACTED_ENTITIES", "12"))
-MAX_TRIPLETS_PER_CHUNK = int(os.getenv("MAX_TRIPLETS_PER_CHUNK", "12"))
+INGEST_CHUNK_SIZE = int(os.getenv("INGEST_CHUNK_SIZE", "260"))
+INGEST_CHUNK_OVERLAP = int(os.getenv("INGEST_CHUNK_OVERLAP", "80"))
+MAX_EXTRACTED_ENTITIES = int(os.getenv("MAX_EXTRACTED_ENTITIES", "24"))
+MAX_TRIPLETS_PER_CHUNK = int(os.getenv("MAX_TRIPLETS_PER_CHUNK", "24"))
 OLLAMA_EXTRACTION_NUM_PREDICT = int(os.getenv("OLLAMA_EXTRACTION_NUM_PREDICT", "256"))
 
 # ── Connections ─────────────────────────────────────────────────────────────
