@@ -148,6 +148,8 @@ VALID_PREDICATES = [
 
 NODE_TABLES = list(set(ENTITY_TYPE_TO_TABLE.values())) + ["chunk", "document", "paragraph"]
 EDGE_TABLES = VALID_PREDICATES
+EXTRA_NODE_TABLES = ["document_version", "template", "playbook", "precedent"]
+RESETTABLE_TABLES = sorted(set(NODE_TABLES + EXTRA_NODE_TABLES + EDGE_TABLES))
 
 # ── Schema ──────────────────────────────────────────────────────────────────
 SCHEMA_STATEMENTS = [
@@ -342,12 +344,7 @@ def init_schema():
 def reset_database():
     """Drop all data for a fresh document analysis."""
     conn = _ensure_conn()
-    all_tables = list(set(
-        VALID_PREDICATES
-        + list(ENTITY_TYPE_TO_TABLE.values())
-        + ["chunk", "document", "document_version", "paragraph", "section"]
-    ))
-    for tbl in all_tables:
+    for tbl in RESETTABLE_TABLES:
         try:
             conn.query(f"DELETE {tbl};")
         except Exception:
@@ -894,6 +891,117 @@ def _extract_graph_facts(tool_data) -> list[dict]:
     return facts
 
 
+def _summary_facts(summary: dict) -> list[dict]:
+    """Convert table counts into simple fact strings for groundedness scoring."""
+    facts = []
+    if not isinstance(summary, dict):
+        return facts
+    for table, count in summary.items():
+        if isinstance(count, int):
+            label = table.replace("_", " ")
+            facts.append({"type": "summary", "text": f"{label} count is {count}"})
+    return facts
+
+
+def _sources_from_search_results(search_results: list[dict]) -> list[dict]:
+    sources = []
+    for item in search_results:
+        if not isinstance(item, dict):
+            continue
+        label = item.get("label", item.get("content", ""))
+        sources.append({
+            "entity": label,
+            "table": item.get("table", ""),
+            "score": item.get("score", 0),
+            "id": item.get("id", ""),
+        })
+    return sources
+
+
+def _answer_looks_like_tool_call(answer: str) -> bool:
+    text = answer.strip().lower()
+    if not text:
+        return True
+    suspicious_markers = [
+        "corrected tool call",
+        '"name": "search_graph"',
+        '"name": "get_graph_summary"',
+        '"parameters":',
+        '"surql":',
+    ]
+    return any(marker in text for marker in suspicious_markers)
+
+
+def _run_query_fallback(question: str) -> dict:
+    """Answer from deterministic retrieval when model-side tool use is unreliable."""
+    summary_raw = get_graph_summary.invoke({})
+    try:
+        summary = json.loads(summary_raw)
+    except json.JSONDecodeError:
+        summary = {}
+
+    search_raw = search_graph.invoke({"query": question, "top_k": 5})
+    try:
+        search_results = json.loads(search_raw)
+        if not isinstance(search_results, list):
+            search_results = []
+    except json.JSONDecodeError:
+        search_results = []
+
+    graph_facts = _extract_graph_facts(search_results) + _summary_facts(summary)
+    sources = _sources_from_search_results(search_results)
+    tool_steps = [
+        {"tool": "get_graph_summary", "args": {}},
+        {"tool": "search_graph", "args": {"query": question, "top_k": 5}},
+    ]
+
+    context_prompt = (
+        "Answer the user's question using ONLY the knowledge graph data below.\n"
+        "Do not describe tools or tool calls.\n"
+        "If the data is insufficient, say that clearly.\n"
+        "Prefer a concise answer.\n\n"
+        f"Graph summary:\n{json.dumps(summary, indent=2, sort_keys=True)}\n\n"
+        f"Search results:\n{json.dumps(search_results, indent=2)}\n\n"
+        f"Question: {question}"
+    )
+
+    try:
+        response = llm.invoke([
+            SystemMessage(content=(
+                "You are a legal-document analysis assistant. "
+                "Answer only from the provided knowledge graph data."
+            )),
+            HumanMessage(content=context_prompt),
+        ])
+        final_answer = str(getattr(response, "content", "")).strip()
+    except Exception:
+        if sources:
+            top = sources[0]
+            final_answer = (
+                f"Top matching graph record: {top.get('entity', 'Unknown')} "
+                f"({top.get('table', 'unknown table')}, id={top.get('id', 'unknown')})."
+            )
+        else:
+            non_zero = {k: v for k, v in summary.items() if v}
+            final_answer = (
+                "No specific matching records were retrieved. "
+                f"Current graph summary: {json.dumps(non_zero or summary, sort_keys=True)}"
+            )
+
+    groundedness = compute_groundedness(final_answer, graph_facts) if graph_facts else {
+        "groundedness_score": 0, "detail": "No graph data retrieved",
+        "matched_facts": [], "token_coverage": 0, "avg_semantic_similarity": 0,
+    }
+
+    return {
+        "answer": final_answer,
+        "groundedness": groundedness,
+        "sources": sources,
+        "tool_steps": tool_steps,
+        "graph_facts_count": len(graph_facts),
+    }
+
+
 def compute_groundedness(answer: str, graph_facts: list[dict]) -> dict:
     if not graph_facts or not answer.strip():
         return {"groundedness_score": 0.0, "detail": "No graph context available",
@@ -1021,6 +1129,10 @@ def ask_question(question: str, thread_id: str) -> dict:
             content = str(getattr(last_msg, "content", "")).strip()
             if content:
                 final_answer = content
+
+    used_mutation_tool = any(step.get("tool") == "mutate_graph" for step in tool_steps)
+    if not used_mutation_tool and (not graph_facts or _answer_looks_like_tool_call(final_answer)):
+        return _run_query_fallback(question)
 
     groundedness = compute_groundedness(final_answer, graph_facts) if graph_facts else {
         "groundedness_score": 0, "detail": "No graph data retrieved",
